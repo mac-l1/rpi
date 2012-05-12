@@ -1,0 +1,154 @@
+glmark2 2012.03 (20120322)
+==========================
+
+* X11:
+  - Support rendering to an off-screen surface (--off-screen).
+  - Add command-line option to select which method to use to "end"
+    a frame (--frame-end).
+
+glmark2 2012.02 (20120216)
+==========================
+
+* Consolidate X11 and Android main loops.
+* Accept command-line options on Android through either a file
+  ('/data/glmark2/args') or an extra intent key ('args').
+* Support per-scene options for displaying an FPS count on screen
+  (show-fps, fps-pos, fps-size), and remove --show-fps command-line option.
+* Support per-scene options for displaying a benchmark title on screen
+  (title, title-pos, title-size).
+* Add command-line option to run benchmarks indefinitely (--run-forever).
+* Add command-line option to annotate the benchmarks with on-screen
+  information (--annotate == -b :show-fps=true:title=#info#).
+* Move various utility classes to libmatrix.
+* Fix build issues on Android ICS.
+
+glmark2 2012.01 (20120119)
+==========================
+
+* X11:
+  - Run each benchmark in a fresh GL context. Use --reuse-context
+    to revert to the old default behavior of using the same context
+    for all benchmarks.
+  - Add option for showing a live FPS counter on screen (--show-fps).
+  - If the list of benchmarks to run contains only option-setting
+    descriptions, run the default benchmarks.
+* Android:
+  - Fix crash on platforms not supporting glMapBufferOES.
+  - Log the glmark2 score when finishing.
+  - Log an error message if we fail to find a suitable EGLContext.
+  - Implement various stability improvements.
+
+glmark2 2011.12 (20111215)
+==========================
+
+* Add benchmark for bilinear filtering implemented in the fragment
+  shader (not included in the default benchmarks).
+* Ensure we don't call any GL functions before binding a GL context.
+* Fix bug in the ShaderSource object that could lead to shader
+  compilation errors in strict OpenGL ES 2.0 implementations.
+* Refactor scene update code to reduce duplication.
+
+glmark2 2011.11 (20111116)
+==========================
+
+* Add benchmark for bump mapping using a height map.
+* Add benchmark for bump mapping using a tangent space normal map
+  (not included in the default benchmarks).
+* Implement validation support for all default benchmarks.
+* Add a colored prefix to log messages in debug mode.
+* Clean up and refactor code.
+
+glmark2 2011.10 (20111018)
+==========================
+
+* Add benchmark for buffer (VBO) updates.
+* Add benchmark for drop-shadow desktop effect.
+* Add support for glmark2 extra large models.
+* Enable the selection of additional models in the shading benchmark.
+* Gracefully handle unsupported OpenGL versions, on both X11 and Android.
+* Disable screen dimming and screen rotation on Android.
+
+glmark2 2011.09 (20110921)
+==========================
+
+* Add benchmark for blur desktop effect.
+* Add support for multiple lights in the phong shading benchmark.
+* Add support for loading models from OBJ geometry files.
+* Add Stanford Bunny model and make it available in the build benchmark.
+* Add per-scene options to set shader precision at runtime.
+* Add command-line option to specify the benchmarks to run using a text file.
+
+glmark2 2011.08 (20110818)
+==========================
+
+* Port to Android (see INSTALL.android).
+* Add benchmark based on pulsar X11 GL screensaver.
+* Add benchmark for 2D image processing using the GPU.
+* Add command line option to set the size of the output window (-s, --size).
+* Implement ShaderSource object to simplify complex shader creation.
+* Implement utility functions to access resources in an abstract way.
+
+glmark2 2011.07 (20110719)
+==========================
+
+* Replace SDL with custom window handling code.
+* Add benchmark for shader conditionals.
+* Add benchmark for shader function calls.
+* Add benchmark for shader loops.
+* Add benchmark for real phong (vs blinn-phong) lighting model.
+* Add benchmark for normal mapping.
+* Refactor Mesh class to increase flexibility in vertex attribute
+  handling.
+
+glmark2 2011.06 (20110624)
+==========================
+
+* Improve benchmark versatility by allowing runtime-configurable,
+  per-scene options.
+* Add command line option to list avalaible scenes and their
+  supported options (-l,--list-scenes).
+* Allow specifying the scenes to run and their options from the
+  command line (-b,--benchmark).
+* Add basic output validation functionality (--validate).
+* Add command line option to call glFinish() instead of swapping
+  the front and back buffers (--no-swap-buffers).
+* Manually disable VSync for GL/GLX (work around an SDL bug).
+* Replace custom math and shader infrastructure with functionality
+  provided by LibMatrix (lp:libmatrix).
+* Improve user documentation (--help and man page).
+
+glmark2 11.05 (20110530)
+==========================
+
+* Don't use the SDL_OPENGL flag for GLESv2 (LP: #761848).
+* Ensure our screen updates are not synchronized with the vertical
+  retrace (LP: 761855).
+* Use the correct GL headers depending on the flavor (desktop vs ES2).
+* Query the correct GL object for shader linking status.
+
+glmark2 11.01 (20110125)
+==========================
+
+* Fix visual corruption in glmark2-es2 due to missing depth buffer.
+* Fix linking issues with gcc 4.5.
+* Use correct GL functions to manipulate shaders vs programs.
+* Make result reporting more parser-friendly.
+* Upgrade build system to waf 1.6.2.
+
+glmark2 10.07.1 (20100728)
+==========================
+
+* Define the precision of fragment shader variables for OpenGL ES 2.0.
+
+glmark2 10.07 (20100715)
+========================
+
+* First release.
+* Included benchmarks:
+  - Rendering using vertex arrays
+  - Rendering using VBOs
+  - Texturing using nearest filtering
+  - Texturing using linear filtering
+  - Texturing using trilinear mipmapped filtering
+  - Lighting per vertex using simple GLSL shaders
+  - Lighting per pixel using elaborate GLSL shaders
