@@ -38,7 +38,8 @@
 #if USE_GL
 #include "canvas-x11-glx.h"
 #elif USE_GLESv2
-#include "canvas-x11-egl.h"
+//#include "canvas-x11-egl.h"
+#include "canvas-egl.h"
 #endif
 
 using std::vector;
@@ -170,7 +171,8 @@ main(int argc, char *argv[])
 #if USE_GL
     CanvasX11GLX canvas(Options::size.first, Options::size.second);
 #elif USE_GLESv2
-    CanvasX11EGL canvas(Options::size.first, Options::size.second);
+    //CanvasX11EGL canvas(Options::size.first, Options::size.second);
+    CanvasEGL canvas(Options::size.first, Options::size.second);
 #endif
 
     canvas.offscreen(Options::offscreen);

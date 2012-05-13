@@ -2,7 +2,7 @@ all_sources = bld.path.ant_glob('*.cpp')
 common_sources = [f for f in all_sources if f.name.find('canvas-') == -1 and
                                             f.name.find('android') == -1 ]
 gl_sources = ['canvas-x11.cpp', 'canvas-x11-glx.cpp']
-glesv2_sources = ['canvas-x11.cpp', 'canvas-x11-egl.cpp']
+glesv2_sources = ['canvas-egl.cpp']
 libmatrix_sources = [f for f in bld.path.ant_glob('libmatrix/*.cc')
                      if not f.name.endswith('test.cc')]
 
@@ -31,15 +31,18 @@ if bld.env.USE_GLESv2:
         source   = libmatrix_sources,
         target   = 'matrix-es2',
         lib      = ['m'],
-        includes = ['.'],
+        includes = ['.', '/opt/vc/include'],
         export_includes = 'libmatrix',
-        defines  = ['USE_GLESv2', 'USE_EXCEPTIONS']
+        defines  = ['USE_GLESv2', 'USE_EXCEPTIONS'],
+        libpath  = ['/opt/vc/lib'],
         )
     bld(
         features     = ['cxx', 'cprogram'],
         source       = common_sources + glesv2_sources,
         target       = 'glmark2-es2',
-        use          = ['x11', 'egl', 'glesv2', 'matrix-es2', 'libpng12'],
-        lib          = ['m', 'dl'],
-        defines      = ['USE_GLESv2', 'USE_EXCEPTIONS']
+        use          = ['x11', 'matrix-es2', 'libpng12'],
+        lib          = ['m', 'dl', 'EGL', 'GLESv2'],
+        defines      = ['USE_GLESv2', 'USE_EXCEPTIONS'],
+        libpath      = ['/opt/vc/lib'],
+        includes     = ['/opt/vc/include'],
         )
