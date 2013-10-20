@@ -6,7 +6,16 @@
 #include <fstream>
 #include <sstream>
 
-#include "bcm_host.h"
+
+#include <hwcomposerwindow/hwcomposer_window.h>
+#include <hardware/hardware.h>
+#include <hardware/hwcomposer.h>
+#include <malloc.h>
+#include <sync/sync.h>
+
+
+hwc_display_contents_1_t **mList = NULL;
+hwc_composer_device_1_t *hwcDevicePtr = 0;
 
 bool
 CanvasEGL::make_current()
@@ -85,8 +94,8 @@ CanvasEGL::ensure_egl_config()
         EGL_ALPHA_SIZE, 8,
         EGL_DEPTH_SIZE, 8,
 #ifdef USE_GLESv2
-        //EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        //EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
 #elif USE_GL
         EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
 #endif
@@ -97,6 +106,50 @@ CanvasEGL::ensure_egl_config()
 
     if (egl_config_)
         return true;
+
+    int err;
+    hw_module_t *hwcModule = 0;
+
+    err = hw_get_module(HWC_HARDWARE_MODULE_ID, (const hw_module_t **) &hwcModule);
+    if(err)
+    {
+        Log::error("hw_get_module() failed!");
+	return false;
+    }
+
+    err = hwc_open_1(hwcModule, &hwcDevicePtr);
+    if(err)
+    {
+        Log::error("hwc_open_1 failed!");
+	return false;
+    }
+
+
+    hwcDevicePtr->blank(hwcDevicePtr, 0, 0);
+
+    uint32_t configs[5];
+    size_t numConfigs = 5;
+
+    err = hwcDevicePtr->getDisplayConfigs(hwcDevicePtr, 0, configs, &numConfigs);
+    if(err)
+    {
+        Log::error("getDisplayConfigs failed!");
+	return false;
+    }
+
+
+
+    int32_t attr_values[2];
+    uint32_t attributes[] = { HWC_DISPLAY_WIDTH, HWC_DISPLAY_HEIGHT, HWC_DISPLAY_NO_ATTRIBUTE };
+
+    hwcDevicePtr->getDisplayAttributes(hwcDevicePtr, 0,
+                    configs[0], attributes, attr_values);
+
+    printf("width: %i height: %i\n", attr_values[0], attr_values[1]);
+    screen_width_ = attr_values[0];
+    screen_height_ = attr_values[1];
+
+    native_window_ = new HWComposerNativeWindow(attr_values[0], attr_values[1], HAL_PIXEL_FORMAT_RGBA_8888);
 
     if (!ensure_egl_display())
         return false;
@@ -214,45 +267,57 @@ CanvasEGL::ensure_egl_surface()
     eglBindAPI(EGL_OPENGL_API);
 #endif
 
-    DISPMANX_ELEMENT_HANDLE_T dispman_element;
-    DISPMANX_DISPLAY_HANDLE_T dispman_display;
-    DISPMANX_UPDATE_HANDLE_T dispman_update;
-    VC_RECT_T dst_rect;
-    VC_RECT_T src_rect;
+    egl_surface_ = eglCreateWindowSurface((EGLDisplay) egl_display_, egl_config_, (EGLNativeWindowType) static_cast<ANativeWindow *> (native_window_), NULL);
 
-    graphics_get_display_size(0, &screen_width_, &screen_height_);
-
-    Log::debug("Screen size: %ux%u\n", screen_width_, screen_height_);
-
-    dst_rect.x = 0;
-    dst_rect.y = 0;
-    dst_rect.width = screen_width_;
-    dst_rect.height = screen_height_;
-
-    src_rect.x = 0;
-    src_rect.y = 0;
-    src_rect.width = screen_width_ << 16;
-    src_rect.height = screen_height_ << 16;
-
-    dispman_display = vc_dispmanx_display_open(0);
-    dispman_update = vc_dispmanx_update_start(0);
-
-    dispman_element = vc_dispmanx_element_add(dispman_update, dispman_display,
-        0, &dst_rect, 0, &src_rect, DISPMANX_PROTECTION_NONE, 0, 0, DISPMANX_NO_ROTATE);
-
-    native_window_.element = dispman_element;
-    native_window_.width = screen_width_;
-    native_window_.height = screen_height_;
-    vc_dispmanx_update_submit_sync(dispman_update);
-
-    egl_surface_ = eglCreateWindowSurface(egl_display_, egl_config_,
-                                          (EGLNativeWindowType) &native_window_,
-                                          NULL);
-    if (!egl_surface_) {
+    if (egl_surface_ == EGL_NO_SURFACE) {
         Log::error("eglCreateWindowSurface failed with error: %d\n",
                      eglGetError());
         return false;
     }
+
+    size_t size = sizeof(hwc_display_contents_1_t) + 2 * sizeof(hwc_layer_1_t);
+    hwc_display_contents_1_t *list = (hwc_display_contents_1_t *) malloc(size);
+    mList = (hwc_display_contents_1_t **) malloc(HWC_NUM_DISPLAY_TYPES * sizeof(hwc_display_contents_1_t *));
+    const hwc_rect_t r = { 0, 0, screen_width_, screen_height_ };
+
+
+    int counter = 0;
+    for (; counter < HWC_NUM_DISPLAY_TYPES; counter++)
+            mList[counter] = list;
+
+    hwc_layer_1_t *layer = &list->hwLayers[0];
+    memset(layer, 0, sizeof(hwc_layer_1_t));
+    layer->compositionType = HWC_FRAMEBUFFER;
+    layer->hints = 0;
+    layer->flags = 0;
+    layer->handle = 0;
+    layer->transform = 0;
+    layer->blending = HWC_BLENDING_NONE;
+    layer->sourceCrop = r;
+    layer->displayFrame = r;
+    layer->visibleRegionScreen.numRects = 1;
+    layer->visibleRegionScreen.rects = &layer->displayFrame;
+    layer->acquireFenceFd = -1;
+    layer->releaseFenceFd = -1;
+    layer = &list->hwLayers[1];
+    memset(layer, 0, sizeof(hwc_layer_1_t));
+    layer->compositionType = HWC_FRAMEBUFFER_TARGET;
+    layer->hints = 0;
+    layer->flags = 0;
+    layer->handle = 0;
+    layer->transform = 0;
+    layer->blending = HWC_BLENDING_NONE;
+    layer->sourceCrop = r;
+    layer->displayFrame = r;
+    layer->visibleRegionScreen.numRects = 1;
+    layer->visibleRegionScreen.rects = &layer->displayFrame;
+    layer->acquireFenceFd = -1;
+    layer->releaseFenceFd = -1;
+
+    list->retireFenceFd = -1;
+    list->flags = HWC_GEOMETRY_CHANGED;
+    list->numHwLayers = 2;
+
 
     return true;
 }
@@ -306,8 +371,6 @@ CanvasEGL::reset()
 bool
 CanvasEGL::init()
 {
-    bcm_host_init();
-
     return reset();
 }
 
@@ -628,3 +691,51 @@ CanvasEGL::get_gl_format_str(GLenum f)
 
     return str;
 }
+
+void CanvasEGL::swap_buffers()
+{
+	int oldretire = -1, oldrelease = -1, oldrelease2 = -1;
+
+		eglSwapBuffers ( (EGLDisplay) egl_display_, egl_surface_ );  // get the rendered buffer to the screen
+
+		HWComposerNativeWindowBuffer *front;	
+		native_window_->lockFrontBuffer(&front);	
+
+		mList[0]->hwLayers[1].handle = front->handle;
+		mList[0]->hwLayers[0].handle = NULL;
+		mList[0]->hwLayers[0].flags = HWC_SKIP_LAYER;
+
+		oldretire = mList[0]->retireFenceFd;
+		oldrelease = mList[0]->hwLayers[1].releaseFenceFd;
+		oldrelease2 = mList[0]->hwLayers[0].releaseFenceFd;
+
+		int err = hwcDevicePtr->prepare(hwcDevicePtr, HWC_NUM_DISPLAY_TYPES, mList);
+		if(err)
+		{
+			printf("prepare() failed!");
+		}		
+
+		err = hwcDevicePtr->set(hwcDevicePtr, HWC_NUM_DISPLAY_TYPES, mList);
+		//assert(err == 0);
+		
+		//assert(mList[0]->hwLayers[0].releaseFenceFd == -1);
+	
+		native_window_->unlockFrontBuffer(front);
+		if (oldrelease != -1)
+		{
+			sync_wait(oldrelease, -1);
+			close(oldrelease);
+		}
+		if (oldrelease2 != -1)
+		{
+			sync_wait(oldrelease2, -1);
+			close(oldrelease2);
+		}
+		if (oldretire != -1)
+		{
+			sync_wait(oldretire, -1);
+			close(oldretire);
+		}
+}
+
+

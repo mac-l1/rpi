@@ -16,6 +16,7 @@
 #include <sstream>
 #include <iostream>
 #include "log.h"
+#include <unistd.h>
 
 #ifdef ANDROID
 #include <android/log.h>

@@ -3,6 +3,7 @@
 
 #include <EGL/egl.h>
 #include "canvas.h"
+#include <hwcomposerwindow/hwcomposer_window.h>
 
 class CanvasEGL : public Canvas
 {
@@ -50,8 +51,10 @@ private:
     GLuint color_renderbuffer_;
     GLuint depth_renderbuffer_;
     GLuint fbo_;
-    EGL_DISPMANX_WINDOW_T native_window_;
-    uint32_t screen_width_, screen_height_;
+    //EGL_DISPMANX_WINDOW_T native_window_;
+    HWComposerNativeWindow *native_window_;
+    
+    int screen_width_, screen_height_;
     EGLDisplay egl_display_;
     EGLSurface egl_surface_;
     EGLConfig egl_config_;
@@ -72,8 +75,7 @@ private:
     bool ensure_fbo();
     void release_fbo();
     const char *get_gl_format_str(GLenum f);
-
-    void swap_buffers() { eglSwapBuffers(egl_display_, egl_surface_); }
+    void swap_buffers();
 };
 
 #endif // GLMARK2_CANVAS_EGL_H_
