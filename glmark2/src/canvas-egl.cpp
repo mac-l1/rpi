@@ -17,6 +17,32 @@
 hwc_display_contents_1_t **mList = NULL;
 hwc_composer_device_1_t *hwcDevicePtr = 0;
 
+hwc_procs_t procs;
+
+void hook_invalidate(const struct hwc_procs* procs) {
+    procs = procs;
+    printf("invalidate\n");
+}
+
+void hook_vsync(const struct hwc_procs* procs, int disp,
+        int64_t timestamp) {
+    procs = procs;
+    disp = disp;
+    timestamp = timestamp;
+    printf("vsync\n");
+}
+
+void hook_hotplug(const struct hwc_procs* procs, int disp,
+        int connected) {
+    procs = procs;
+    disp = disp;
+    connected = connected;
+    printf("hotplug\n");
+}
+CanvasEGL::~CanvasEGL()
+{
+    hwc_close_1(hwcDevicePtr);
+}
 bool
 CanvasEGL::make_current()
 {
@@ -124,7 +150,13 @@ CanvasEGL::ensure_egl_config()
 	return false;
     }
 
-
+    if(hwcDevicePtr->registerProcs) {
+        Log::error("hwc has procs!\n");
+        procs.invalidate = &hook_invalidate;
+        procs.vsync = &hook_vsync;
+        procs.hotplug = &hook_hotplug;
+        hwcDevicePtr->registerProcs(hwcDevicePtr, &procs);
+    }
     hwcDevicePtr->blank(hwcDevicePtr, 0, 0);
 
     uint32_t configs[5];
@@ -139,13 +171,13 @@ CanvasEGL::ensure_egl_config()
 
 
 
-    int32_t attr_values[2];
-    uint32_t attributes[] = { HWC_DISPLAY_WIDTH, HWC_DISPLAY_HEIGHT, HWC_DISPLAY_NO_ATTRIBUTE };
+    int32_t attr_values[3];
+    uint32_t attributes[] = { HWC_DISPLAY_WIDTH, HWC_DISPLAY_HEIGHT,HWC_DISPLAY_VSYNC_PERIOD, HWC_DISPLAY_NO_ATTRIBUTE };
 
     hwcDevicePtr->getDisplayAttributes(hwcDevicePtr, 0,
                     configs[0], attributes, attr_values);
 
-    printf("width: %i height: %i\n", attr_values[0], attr_values[1]);
+    printf("width: %i height: %i refresh: %i\n", attr_values[0], attr_values[1], attr_values[2]);
     screen_width_ = attr_values[0];
     screen_height_ = attr_values[1];
 
@@ -289,7 +321,7 @@ CanvasEGL::ensure_egl_surface()
     memset(layer, 0, sizeof(hwc_layer_1_t));
     layer->compositionType = HWC_FRAMEBUFFER;
     layer->hints = 0;
-    layer->flags = 0;
+    layer->flags = HWC_SKIP_LAYER;
     layer->handle = 0;
     layer->transform = 0;
     layer->blending = HWC_BLENDING_NONE;
@@ -694,21 +726,22 @@ CanvasEGL::get_gl_format_str(GLenum f)
 
 void CanvasEGL::swap_buffers()
 {
-	int oldretire = -1, oldrelease = -1, oldrelease2 = -1;
+//	int oldretire = -1, oldrelease = -1, oldrelease2 = -1;
 
 		eglSwapBuffers ( (EGLDisplay) egl_display_, egl_surface_ );  // get the rendered buffer to the screen
 
 		HWComposerNativeWindowBuffer *front;	
 		native_window_->lockFrontBuffer(&front);	
-
-		mList[0]->hwLayers[1].handle = front->handle;
-		mList[0]->hwLayers[0].handle = NULL;
-		mList[0]->hwLayers[0].flags = HWC_SKIP_LAYER;
-
+		for(int i=0; i < HWC_NUM_DISPLAY_TYPES;i++) {
+			mList[i]->hwLayers[1].handle = front->handle;
+			mList[i]->hwLayers[0].handle = NULL;
+			mList[i]->hwLayers[0].flags = HWC_SKIP_LAYER;
+		}
+#if 0
 		oldretire = mList[0]->retireFenceFd;
 		oldrelease = mList[0]->hwLayers[1].releaseFenceFd;
 		oldrelease2 = mList[0]->hwLayers[0].releaseFenceFd;
-
+#endif
 		int err = hwcDevicePtr->prepare(hwcDevicePtr, HWC_NUM_DISPLAY_TYPES, mList);
 		if(err)
 		{
@@ -717,10 +750,13 @@ void CanvasEGL::swap_buffers()
 
 		err = hwcDevicePtr->set(hwcDevicePtr, HWC_NUM_DISPLAY_TYPES, mList);
 		//assert(err == 0);
-		
+		for(int i=0; i < HWC_NUM_DISPLAY_TYPES;i++) {
+			mList[i]->flags &= ~HWC_GEOMETRY_CHANGED;
+		}	
 		//assert(mList[0]->hwLayers[0].releaseFenceFd == -1);
 	
 		native_window_->unlockFrontBuffer(front);
+#if 0
 		if (oldrelease != -1)
 		{
 			sync_wait(oldrelease, -1);
@@ -736,6 +772,5 @@ void CanvasEGL::swap_buffers()
 			sync_wait(oldretire, -1);
 			close(oldretire);
 		}
+#endif
 }
-
-

@@ -22,9 +22,7 @@ public:
         egl_config_(0),
         egl_context_(EGL_NO_CONTEXT)
         {}
-
-    ~CanvasEGL() {}
-
+    ~CanvasEGL();
     virtual bool init();
     virtual bool reset();
     virtual void visible(bool visible);
