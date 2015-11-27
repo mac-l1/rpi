@@ -7,12 +7,55 @@
 #include <sstream>
 
 
+#include <android-config.h>
 #include <hwcomposerwindow/hwcomposer_window.h>
 #include <hardware/hardware.h>
 #include <hardware/hwcomposer.h>
 #include <malloc.h>
 #include <sync/sync.h>
 
+class HWComposer : public HWComposerNativeWindow
+{
+	private:
+		hwc_layer_1_t *fblayer;
+		hwc_composer_device_1_t *hwcdevice;
+		hwc_display_contents_1_t **mlist;
+	protected:
+		void present(HWComposerNativeWindowBuffer *buffer);
+
+	public:
+
+		HWComposer(unsigned int width, unsigned int height, unsigned int format, hwc_composer_device_1_t *device, hwc_display_contents_1_t **mList, hwc_layer_1_t *layer);
+		void set();	
+};
+
+HWComposer::HWComposer(unsigned int width, unsigned int height, unsigned int format, hwc_composer_device_1_t *device, hwc_display_contents_1_t **mList, hwc_layer_1_t *layer) : HWComposerNativeWindow(width, height, format)
+{
+	fblayer = layer;
+	hwcdevice = device;
+	mlist = mList;
+}
+
+void HWComposer::present(HWComposerNativeWindowBuffer *buffer)
+{
+	int oldretire = mlist[0]->retireFenceFd;
+	mlist[0]->retireFenceFd = -1;
+	fblayer->handle = buffer->handle;
+	fblayer->acquireFenceFd = getFenceBufferFd(buffer);
+	fblayer->releaseFenceFd = -1;
+	int err = hwcdevice->prepare(hwcdevice, HWC_NUM_DISPLAY_TYPES, mlist);
+	assert(err == 0);
+
+	err = hwcdevice->set(hwcdevice, HWC_NUM_DISPLAY_TYPES, mlist);
+	//assert(err == 0);
+	setFenceBufferFd(buffer, fblayer->releaseFenceFd);
+
+	if (oldretire != -1)
+	{   
+		sync_wait(oldretire, -1);
+		close(oldretire);
+	}
+} 
 
 hwc_display_contents_1_t **mList = NULL;
 hwc_composer_device_1_t *hwcDevicePtr = 0;
@@ -24,12 +67,21 @@ void hook_invalidate(const struct hwc_procs* procs) {
     printf("invalidate\n");
 }
 
+void advance_cursor() {
+  static int pos=0;
+  char cursor[4]={'/','-','\\','|'};
+  printf("%c\b", cursor[pos]);
+  fflush(stdout);
+  pos = (pos+1) % 4;
+}
+
 void hook_vsync(const struct hwc_procs* procs, int disp,
         int64_t timestamp) {
     procs = procs;
     disp = disp;
     timestamp = timestamp;
-    printf("vsync\n");
+    //printf("vsync\n");
+    advance_cursor();
 }
 
 void hook_hotplug(const struct hwc_procs* procs, int disp,
@@ -39,10 +91,12 @@ void hook_hotplug(const struct hwc_procs* procs, int disp,
     connected = connected;
     printf("hotplug\n");
 }
+
 CanvasEGL::~CanvasEGL()
 {
     hwc_close_1(hwcDevicePtr);
 }
+
 bool
 CanvasEGL::make_current()
 {
@@ -134,7 +188,15 @@ CanvasEGL::ensure_egl_config()
         return true;
 
     int err;
+
+    hw_module_t const* module = NULL;
+    err = hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+    assert(err == 0);
+    framebuffer_device_t* fbDev = NULL;
+    framebuffer_open(module, &fbDev);
+
     hw_module_t *hwcModule = 0;
+    hwc_composer_device_1_t *hwcDevicePtr = 0;
 
     err = hw_get_module(HWC_HARDWARE_MODULE_ID, (const hw_module_t **) &hwcModule);
     if(err)
@@ -158,6 +220,7 @@ CanvasEGL::ensure_egl_config()
         hwcDevicePtr->registerProcs(hwcDevicePtr, &procs);
     }
     hwcDevicePtr->blank(hwcDevicePtr, 0, 0);
+    hwcDevicePtr->eventControl(hwcDevicePtr, 0, HWC_EVENT_VSYNC, 1);
 
     uint32_t configs[5];
     size_t numConfigs = 5;
@@ -169,8 +232,6 @@ CanvasEGL::ensure_egl_config()
 	return false;
     }
 
-
-
     int32_t attr_values[3];
     uint32_t attributes[] = { HWC_DISPLAY_WIDTH, HWC_DISPLAY_HEIGHT,HWC_DISPLAY_VSYNC_PERIOD, HWC_DISPLAY_NO_ATTRIBUTE };
 
@@ -181,7 +242,53 @@ CanvasEGL::ensure_egl_config()
     screen_width_ = attr_values[0];
     screen_height_ = attr_values[1];
 
-    native_window_ = new HWComposerNativeWindow(attr_values[0], attr_values[1], HAL_PIXEL_FORMAT_RGBA_8888);
+    size_t size = sizeof(hwc_display_contents_1_t) + 2 * sizeof(hwc_layer_1_t);
+    hwc_display_contents_1_t *list = (hwc_display_contents_1_t *) malloc(size);
+    hwc_display_contents_1_t **mList = (hwc_display_contents_1_t **) malloc(HWC_NUM_DISPLAY_TYPES * sizeof(hwc_display_contents_1_t *));
+    const hwc_rect_t r = { 0, 0, attr_values[0], attr_values[1] };
+
+    int counter = 0;
+    for (; counter < HWC_NUM_DISPLAY_TYPES; counter++)
+    	mList[counter] = list;
+    
+    hwc_layer_1_t *layer = &list->hwLayers[0];
+    memset(layer, 0, sizeof(hwc_layer_1_t));
+    layer->compositionType = HWC_FRAMEBUFFER;
+    layer->hints = 0;
+    layer->flags = 0;
+    layer->handle = 0;
+    layer->transform = 0;
+    layer->blending = HWC_BLENDING_NONE;
+    layer->sourceCrop = r;
+    layer->displayFrame = r;
+    layer->visibleRegionScreen.numRects = 1;
+    layer->visibleRegionScreen.rects = &layer->displayFrame;
+    layer->acquireFenceFd = -1;
+    layer->releaseFenceFd = -1;
+    layer->planeAlpha = 0xFF;
+    layer = &list->hwLayers[1];
+    memset(layer, 0, sizeof(hwc_layer_1_t));
+    layer->compositionType = HWC_FRAMEBUFFER_TARGET;
+    layer->hints = 0;
+    layer->flags = 0;
+    layer->handle = 0;
+    layer->transform = 0;
+    layer->blending = HWC_BLENDING_NONE;
+    layer->sourceCrop = r;
+    layer->displayFrame = r;
+    layer->visibleRegionScreen.numRects = 1;
+    layer->visibleRegionScreen.rects = &layer->displayFrame;
+    layer->acquireFenceFd = -1;
+    layer->releaseFenceFd = -1;
+    layer->planeAlpha = 0xFF;
+    
+    list->retireFenceFd = -1;
+    list->flags = HWC_GEOMETRY_CHANGED;
+    list->numHwLayers = 2;
+    
+    HWComposer *win = new HWComposer(attr_values[0], attr_values[1], HAL_PIXEL_FORMAT_RGBA_8888, hwcDevicePtr, mList, &list->hwLayers[1]);
+
+    native_window_ = win;
 
     if (!ensure_egl_display())
         return false;
@@ -306,51 +413,6 @@ CanvasEGL::ensure_egl_surface()
                      eglGetError());
         return false;
     }
-
-    size_t size = sizeof(hwc_display_contents_1_t) + 2 * sizeof(hwc_layer_1_t);
-    hwc_display_contents_1_t *list = (hwc_display_contents_1_t *) malloc(size);
-    mList = (hwc_display_contents_1_t **) malloc(HWC_NUM_DISPLAY_TYPES * sizeof(hwc_display_contents_1_t *));
-    const hwc_rect_t r = { 0, 0, screen_width_, screen_height_ };
-
-
-    int counter = 0;
-    for (; counter < HWC_NUM_DISPLAY_TYPES; counter++)
-            mList[counter] = list;
-
-    hwc_layer_1_t *layer = &list->hwLayers[0];
-    memset(layer, 0, sizeof(hwc_layer_1_t));
-    layer->compositionType = HWC_FRAMEBUFFER;
-    layer->hints = 0;
-    layer->flags = HWC_SKIP_LAYER;
-    layer->handle = 0;
-    layer->transform = 0;
-    layer->blending = HWC_BLENDING_NONE;
-    layer->sourceCrop = r;
-    layer->displayFrame = r;
-    layer->visibleRegionScreen.numRects = 1;
-    layer->visibleRegionScreen.rects = &layer->displayFrame;
-    layer->acquireFenceFd = -1;
-    layer->releaseFenceFd = -1;
-    layer = &list->hwLayers[1];
-    memset(layer, 0, sizeof(hwc_layer_1_t));
-    layer->compositionType = HWC_FRAMEBUFFER_TARGET;
-    layer->hints = 0;
-    layer->flags = 0;
-    layer->handle = 0;
-    layer->transform = 0;
-    layer->blending = HWC_BLENDING_NONE;
-    layer->sourceCrop = r;
-    layer->displayFrame = r;
-    layer->visibleRegionScreen.numRects = 1;
-    layer->visibleRegionScreen.rects = &layer->displayFrame;
-    layer->acquireFenceFd = -1;
-    layer->releaseFenceFd = -1;
-
-    list->retireFenceFd = -1;
-    list->flags = HWC_GEOMETRY_CHANGED;
-    list->numHwLayers = 2;
-
-
     return true;
 }
 
@@ -726,51 +788,5 @@ CanvasEGL::get_gl_format_str(GLenum f)
 
 void CanvasEGL::swap_buffers()
 {
-//	int oldretire = -1, oldrelease = -1, oldrelease2 = -1;
-
-		eglSwapBuffers ( (EGLDisplay) egl_display_, egl_surface_ );  // get the rendered buffer to the screen
-
-		HWComposerNativeWindowBuffer *front;	
-		native_window_->lockFrontBuffer(&front);	
-		for(int i=0; i < HWC_NUM_DISPLAY_TYPES;i++) {
-			mList[i]->hwLayers[1].handle = front->handle;
-			mList[i]->hwLayers[0].handle = NULL;
-			mList[i]->hwLayers[0].flags = HWC_SKIP_LAYER;
-		}
-#if 0
-		oldretire = mList[0]->retireFenceFd;
-		oldrelease = mList[0]->hwLayers[1].releaseFenceFd;
-		oldrelease2 = mList[0]->hwLayers[0].releaseFenceFd;
-#endif
-		int err = hwcDevicePtr->prepare(hwcDevicePtr, HWC_NUM_DISPLAY_TYPES, mList);
-		if(err)
-		{
-			printf("prepare() failed!");
-		}		
-
-		err = hwcDevicePtr->set(hwcDevicePtr, HWC_NUM_DISPLAY_TYPES, mList);
-		//assert(err == 0);
-		for(int i=0; i < HWC_NUM_DISPLAY_TYPES;i++) {
-			mList[i]->flags &= ~HWC_GEOMETRY_CHANGED;
-		}	
-		//assert(mList[0]->hwLayers[0].releaseFenceFd == -1);
-	
-		native_window_->unlockFrontBuffer(front);
-#if 0
-		if (oldrelease != -1)
-		{
-			sync_wait(oldrelease, -1);
-			close(oldrelease);
-		}
-		if (oldrelease2 != -1)
-		{
-			sync_wait(oldrelease2, -1);
-			close(oldrelease2);
-		}
-		if (oldretire != -1)
-		{
-			sync_wait(oldretire, -1);
-			close(oldretire);
-		}
-#endif
+    eglSwapBuffers ( (EGLDisplay) egl_display_, egl_surface_ );  // get the rendered buffer to the screen
 }

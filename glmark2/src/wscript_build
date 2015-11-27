@@ -43,6 +43,6 @@ if bld.env.USE_GLESv2:
         use          = ['matrix-es2', 'libpng12'],
         lib          = ['m', 'dl', 'EGL', 'GLESv2', 'hardware', 'hybris-hwcomposerwindow', 'sync'],
         defines      = ['USE_GLESv2', 'USE_EXCEPTIONS'],
-        libpath      = [],
-        includes     = [],
+        libpath      = ['/usr/local/lib'],
+        includes     = ['/usr/local/include/android'],
         )
